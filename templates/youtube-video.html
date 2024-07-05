@@ -12,11 +12,15 @@
 </video>
 {% endif %}
 
-<table>
+<table width="90%">
     <tr>
         <th>format_id</th>
         <th>audio_ext</th>
         <th>video_ext</th>
+
+        <th>acodec</th>
+        <th>vcodec</th>
+
         <th>format</th>
         <th>watch</th>
         <th>listen</th>
@@ -27,6 +31,10 @@
         <td>{{format.format_id}}</td>
         <td>{{format.audio_ext}}</td>
         <td>{{format.video_ext}}</td>
+
+        <td>{{format.acodec}}</td>
+        <td>{{format.vcodec}}</td>
+
         <td>{{format.format}}</td>
         <td><a href="/youtube?video={{video.id}}&format={{format.format_id}}&video_only=1">watch</a></td>
         <td><a href="/youtube?video={{video.id}}&format={{format.format_id}}&audio_only=1">listen</a></td>

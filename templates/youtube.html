@@ -2,8 +2,12 @@
 <html>
 <body>
 <h1>videos</h1>
+<form id="searchForm" method="GET" action="">
+    <input type="text" id="searchterm" name="q" placeholder="Enter search term"></input>
+    <input type="submit" value="Search">
+</form>
 {% for video in videos %}
-    <a href="/youtube?video={{ video.id }}">{{video.title}}</a>
+    <a href="/youtube?video={{ video.id }}">{{video.title}}</a><br>
 {% endfor %}
 </body>
 </html>

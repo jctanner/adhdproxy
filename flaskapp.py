@@ -28,63 +28,6 @@ youtubecache = 'youtube_cache'
 youtubecache_index = '/tmp/youtubevids/index.json'
 
 
-def prefetch_youtube_video(videourl):
-    # youtube-dl https://www.youtube.com/channel/UCoHhuummRZaIVX7bD4t2czg -f 249
-    if not os.path.exists(youtubecache):
-        os.makedirs(youtubecache)
-
-    yindex = {}
-    if os.path.exists(youtubecache_index):
-        with open(youtubecache_index, 'r') as f:
-            yindex = json.loads(f.read())
-
-    if yindex.get(videourl):
-        logger.debug('%s already fetched as %s' % (videourl, yindex[videourl]))
-        return yindex[videourl]
-
-    cmd = 'cd %s; youtube-dl --skip-download --print-json %s' % (youtubecache, videourl)
-    p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
-    (so, se) = p.communicate()
-    jdata = json.loads(so)
-
-    formatids = ['worst']
-    for _format in jdata['formats']:
-        if 'audio only' in _format['format']:
-            continue
-        if 'video only' in _format['format']:
-            continue
-        if _format['ext'] == 'webm':
-            formatids.append(_format['format_id'])
-
-    for x in formatids:
-        cmd = "cd %s; youtube-dl -v -f %s --no-playlist --write-info-json '%s'" % (youtubecache, x, videourl)
-        try:
-            p = subprocess.Popen(cmd, shell=True)
-            p.communicate()
-        except Exception as e:
-            continue
-        if p.returncode == 0:
-            break
-
-    vfile = None
-    jfiles = glob.glob('%s/*.info.json' % youtubecache)
-    for jfile in jfiles:
-        with open(jfile, 'r') as f:
-            jfdata = json.loads(f.read())
-        if jfdata['id'] == jdata['id']:
-            vfile = jfile.replace('.info.json', '.webm')
-
-    #if vfile is None:
-    #    import epdb; epdb.st()
-
-    yindex[videourl] = vfile
-
-    with open(youtubecache_index, 'w') as f:
-        f.write(json.dumps(yindex, indent=2, sort_keys=True))
-
-    return vfile
-
-
 def replace_urls(html, domain, protocol=None):
     soup = BeautifulSoup(html,'html.parser')
     arefs = soup.findAll('a')
@@ -188,6 +131,7 @@ def youtube():
 
     print('---------------------------')
     logger.debug(request.args)
+    q = request.args.get('q')
     videoid = request.args.get('video')
     formatid = request.args.get('format')
     audio_only = request.args.get('audio_only')
@@ -201,7 +145,7 @@ def youtube():
             os.makedirs(vdir)
         df = os.path.join(vdir, 'data.json')
         if not os.path.exists(df):
-            cmd = f'yt-dlp -J aJoo79OwZEI | tee -a {df}'
+            cmd = f'yt-dlp -J {videoid} | tee -a {df}'
             logger.debug(cmd)
             subprocess.run(cmd, shell=True)
         with open(df, 'r') as f:
@@ -237,12 +181,43 @@ def youtube():
 
     videos = []
 
-    cmd = 'yt-dlp --dump-json --clean-info-json --write-thumbnail "ytsearch:liquid dnb"'
-    logger.debug(cmd)
-    pid = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE)
-    ds = json.loads(pid.stdout.decode('utf-8'))
-    videos.append({'id': ds['id'], 'title': ds['title']})
-    logger.debug(videos)
+    # do a search ...
+    if q:
+        cmd = f'yt-dlp --dump-json --clean-info-json --dump-single-json "ytsearch5:{q}"'
+        logger.debug(cmd)
+        pid = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE)
+        lines = pid.stdout.decode('utf-8').split('\n')
+        for line in lines:
+            try:
+                ds = json.loads(line)
+                videos.append({'id': ds['id'], 'title': ds['title']})
+
+                vid = ds['id']
+                vdir = os.path.join(youtubecache, vid)
+                if not os.path.exists(vdir):
+                    os.makedirs(vdir)
+                dfile = os.path.join(vdir, 'data.json')
+                if not os.path.exists(dfile):
+                    with open(dfile, 'w') as f:
+                        f.write(json.dumps(ds, indent=2))
+
+            except Exception as e:
+                logger.exception(e)
+                continue
+
+        logger.debug(videos)
+
+    else:
+        # list what has already been cached
+        vfiles = glob.glob(f'{youtubecache}/*/data.json')
+        for vfile in vfiles:
+            logger.debug(f'read {vfile}')
+            try:
+                with open(vfile, 'r') as f:
+                    ds = json.loads(f.read())
+                videos.append({'id': ds['id'], 'title': ds['title']})
+            except Exception as e:
+                logger.exception(e)
 
     return render_template('youtube.html', videos=videos)
 
