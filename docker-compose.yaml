@@ -1,0 +1,9 @@
+services:
+    adhdproxy:
+        build:
+            context: .
+        command: python flaskapp.py
+        ports:
+            - "5002:5002"
+        volumes:
+            - ".:/app"

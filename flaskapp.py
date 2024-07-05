@@ -16,13 +16,15 @@ from flask import jsonify
 from flask import render_template
 from flask import request
 from flask import send_from_directory
+from flask import send_file
 
 
 
 app = Flask(__name__)
 requests_cache.install_cache('/tmp/r.cache')
 session = requests.Session()
-youtubecache = '/tmp/youtubevids'
+#youtubecache = '/tmp/youtubevids'
+youtubecache = 'youtube_cache'
 youtubecache_index = '/tmp/youtubevids/index.json'
 
 
@@ -174,6 +176,78 @@ def do_link(path):
     return thishtml
 
 
+@app.route('/files/youtube/<path:path>')
+def files_youtube(path):
+    fn = os.path.join(youtubecache, path)
+    return send_file(fn)
+
+
+@app.route('/youtube')
+@app.route('/youtube/')
+def youtube():
+
+    print('---------------------------')
+    logger.debug(request.args)
+    videoid = request.args.get('video')
+    formatid = request.args.get('format')
+    audio_only = request.args.get('audio_only')
+    video_only = request.args.get('video_only')
+    logger.debug(f'videoid: {videoid} formatid:{formatid} audio:{audio_only} video:{video_only}')
+    logger.debug('---------------------------')
+    if videoid is not None:
+
+        vdir = os.path.join(youtubecache, videoid)
+        if not os.path.exists(vdir):
+            os.makedirs(vdir)
+        df = os.path.join(vdir, 'data.json')
+        if not os.path.exists(df):
+            cmd = f'yt-dlp -J aJoo79OwZEI | tee -a {df}'
+            logger.debug(cmd)
+            subprocess.run(cmd, shell=True)
+        with open(df, 'r') as f:
+            ds = json.loads(f.read())
+
+        videofile = None
+        if formatid:
+            for vformat in ds['formats']:
+                print(vformat)
+                if vformat['format_id'] == formatid:
+                    break
+
+            logger.debug('####################################')
+            logger.debug(vformat)
+            logger.debug('####################################')
+
+            if vformat['video_ext'] != 'none':
+                videofile = videoid + '_' + formatid + '.' + vformat['video_ext']
+            elif vformat['audio_ext'] != 'none':
+                videofile = videoid + '_' + formatid + '.' + vformat['audio_ext']
+            else:
+                videofile = videoid + '_' + formatid + '.vid'
+
+            vfilepath = os.path.join(vdir, videofile)
+            if not os.path.exists(vfilepath):
+                #cmd = f'yt-dlp --keep-video --format {formatid} --extract-audio --output {videofile} {videoid}'
+                cmd = f'yt-dlp --keep-video --format {formatid} --output {videofile} {videoid}'
+                logger.debug(cmd)
+                subprocess.run(cmd, cwd=vdir, shell=True)
+
+        #cmd = 'yt-dlp --keep-video --extract-audio {videoid}'
+        return render_template('youtube-video.html', video=ds, videofile=videofile)
+
+    videos = []
+
+    cmd = 'yt-dlp --dump-json --clean-info-json --write-thumbnail "ytsearch:liquid dnb"'
+    logger.debug(cmd)
+    pid = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE)
+    ds = json.loads(pid.stdout.decode('utf-8'))
+    videos.append({'id': ds['id'], 'title': ds['title']})
+    logger.debug(videos)
+
+    return render_template('youtube.html', videos=videos)
+
+
+
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def abstract_path(path):
@@ -183,7 +257,7 @@ def abstract_path(path):
     logger.info(path)
 
     if path == 'favicon.ico':
-        return ''    
+        return ''
 
     if not path:
         return render_template('index.html')
@@ -203,4 +277,4 @@ def abstract_path(path):
 
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', debug=True)
+    app.run(host='0.0.0.0', port=5002, debug=True)

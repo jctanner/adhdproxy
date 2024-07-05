@@ -1,0 +1,9 @@
+<!DOCTYPE html>
+<html>
+<body>
+<h1>videos</h1>
+{% for video in videos %}
+    <a href="/youtube?video={{ video.id }}">{{video.title}}</a>
+{% endfor %}
+</body>
+</html>

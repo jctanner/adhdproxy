@@ -1,0 +1,6 @@
+requests
+requests_cache
+flask
+logzero
+beautifulsoup4
+yt-dlp
