@@ -156,6 +156,12 @@ def favorites():
             try:
                 with open(df, 'r') as f:
                     ds = json.loads(f.read())
+
+                    # Skip if data is invalid
+                    if not ds or not isinstance(ds, dict) or 'id' not in ds:
+                        logger.warning(f'Skipping invalid data file: {df}')
+                        continue
+
                     video_details.append({
                         'id': ds['id'],
                         'title': ds['title'],
@@ -315,6 +321,12 @@ def youtube_channel(channel_id):
         try:
             with open(vfile, 'r') as f:
                 ds = json.loads(f.read())
+
+                # Skip if data is invalid
+                if not ds or not isinstance(ds, dict):
+                    logger.warning(f'Skipping invalid data file: {vfile}')
+                    continue
+
                 if ds.get('channel_id') == channel_id:
                     channel_videos.append({
                         'id': ds['id'],
@@ -470,6 +482,11 @@ def youtube():
             try:
                 with open(vfile, 'r') as f:
                     ds = json.loads(f.read())
+
+                # Skip if data is invalid
+                if not ds or not isinstance(ds, dict) or 'id' not in ds:
+                    logger.warning(f'Skipping invalid data file: {vfile}')
+                    continue
 
                 video_info = {
                     'id': ds['id'],
