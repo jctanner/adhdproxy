@@ -141,15 +141,7 @@ def clear_cache():
         requests_cache.install_cache('/tmp/r.cache', expire_after=86400)
 
         logger.info('Cache cleared successfully (videos preserved)')
-        return '''
-        <html>
-        <body>
-            <h2>Cache Cleared Successfully</h2>
-            <p>Web request cache has been cleared. Your downloaded videos are safe.</p>
-            <p><a href="/youtube">Back to YouTube</a> | <a href="/">Home</a></p>
-        </body>
-        </html>
-        '''
+        return render_template('cache_cleared.html')
     except Exception as e:
         logger.exception(e)
         return f'Error clearing cache: {str(e)}', 500

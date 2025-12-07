@@ -1,6 +1,9 @@
-<!DOCTYPE html>
-<html>
-<head>
+{% extends "base.html" %}
+
+{% block title %}{{video.title}} - ADHD Proxy{% endblock %}
+{% block nav_youtube %}active{% endblock %}
+
+{% block extra_head %}
 <style>
 .video-container {
     position: relative;
@@ -35,8 +38,9 @@ video::-webkit-media-controls-panel {
     z-index: 3 !important;
 }
 </style>
-</head>
-<body>
+{% endblock %}
+
+{% block content %}
 <h1>{{video.title}}</h1>
 
 {% if videofile != None %}
@@ -252,5 +256,4 @@ function toggleThumbnail() {
 {% endfor %}
 </table>
 
-</body>
-</html>
+{% endblock %}
