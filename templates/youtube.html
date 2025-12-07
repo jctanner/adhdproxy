@@ -12,6 +12,10 @@
     <input type="submit" value="Search">
 </form>
 
+<div style="margin: 10px 0;">
+    <a href="/clear-cache" style="padding: 5px 10px; background: #f44336; color: white; text-decoration: none; font-size: 12px;">Clear Cache (Keep Videos)</a>
+</div>
+
 {% if query and (has_prev or has_next) %}
 <div style="margin: 10px 0;">
     {% if has_prev %}
@@ -25,7 +29,14 @@
 {% endif %}
 
 {% for video in videos %}
-    <a href="/youtube?video={{ video.id }}">{{video.title}}</a><br>
+    <div style="margin: 8px 0;">
+        <a href="/youtube?video={{ video.id }}">{{video.title}}</a>
+        {% if video.upload_date %}
+            <span style="color: #666; font-size: 0.9em; margin-left: 10px;">
+                ({{ video.upload_date[:4] }}-{{ video.upload_date[4:6] }}-{{ video.upload_date[6:8] }})
+            </span>
+        {% endif %}
+    </div>
 {% endfor %}
 
 {% if query and (has_prev or has_next) %}

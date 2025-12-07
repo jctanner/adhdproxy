@@ -6,11 +6,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: python flaskapp.py
     ports:
       - "5002:5002"
     volumes:
       - ".:/app:z"
+      - "./certs:/app/certs:z"
     environment:
       - PYTHONUNBUFFERED=1
       - FLASK_ENV=production

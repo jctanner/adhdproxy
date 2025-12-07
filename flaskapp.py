@@ -21,6 +21,7 @@ from flask import send_file
 
 
 app = Flask(__name__)
+app.config['TEMPLATES_AUTO_RELOAD'] = True  # Reload templates on every request
 requests_cache.install_cache('/tmp/r.cache', expire_after=86400)  # 1 day = 86400 seconds
 session = requests.Session()
 #youtubecache = '/tmp/youtubevids'
@@ -125,6 +126,35 @@ def files_youtube(path):
     return send_file(fn)
 
 
+@app.route('/clear-cache')
+def clear_cache():
+    """Clear the web request cache but keep downloaded videos"""
+    try:
+        # Clear requests cache
+        cache_path = '/tmp/r.cache'
+        if os.path.exists(cache_path):
+            os.remove(cache_path)
+        if os.path.exists(cache_path + '.sqlite'):
+            os.remove(cache_path + '.sqlite')
+
+        # Reinstall the cache to recreate it
+        requests_cache.install_cache('/tmp/r.cache', expire_after=86400)
+
+        logger.info('Cache cleared successfully (videos preserved)')
+        return '''
+        <html>
+        <body>
+            <h2>Cache Cleared Successfully</h2>
+            <p>Web request cache has been cleared. Your downloaded videos are safe.</p>
+            <p><a href="/youtube">Back to YouTube</a> | <a href="/">Home</a></p>
+        </body>
+        </html>
+        '''
+    except Exception as e:
+        logger.exception(e)
+        return f'Error clearing cache: {str(e)}', 500
+
+
 @app.route('/youtube')
 @app.route('/youtube/')
 def youtube():
@@ -197,7 +227,12 @@ def youtube():
         for line in lines:
             try:
                 ds = json.loads(line)
-                all_videos.append({'id': ds['id'], 'title': ds['title']})
+                all_videos.append({
+                    'id': ds['id'],
+                    'title': ds['title'],
+                    'upload_date': ds.get('upload_date'),
+                    'timestamp': ds.get('timestamp', 0)
+                })
 
                 vid = ds['id']
                 vdir = os.path.join(youtubecache, vid)
@@ -211,6 +246,9 @@ def youtube():
             except Exception as e:
                 logger.exception(e)
                 continue
+
+        # Sort by timestamp (newest first)
+        all_videos.sort(key=lambda x: x['timestamp'], reverse=True)
 
         # Pagination logic: take only the results for current page
         start_idx = (page - 1) * per_page
@@ -232,9 +270,17 @@ def youtube():
             try:
                 with open(vfile, 'r') as f:
                     ds = json.loads(f.read())
-                all_cached.append({'id': ds['id'], 'title': ds['title']})
+                all_cached.append({
+                    'id': ds['id'],
+                    'title': ds['title'],
+                    'upload_date': ds.get('upload_date'),
+                    'timestamp': ds.get('timestamp', 0)
+                })
             except Exception as e:
                 logger.exception(e)
+
+        # Sort cached results by timestamp (newest first)
+        all_cached.sort(key=lambda x: x['timestamp'], reverse=True)
 
         # Paginate cached results
         start_idx = (page - 1) * per_page
@@ -284,4 +330,15 @@ def abstract_path(path):
 if __name__ == "__main__":
     # Check if running in container (disable debug mode to prevent reload loops)
     debug_mode = os.environ.get('FLASK_ENV') != 'production'
-    app.run(host='0.0.0.0', port=5002, debug=debug_mode, ssl_context='adhoc')
+
+    # Use persistent certificates
+    cert_file = '/app/certs/cert.pem'
+    key_file = '/app/certs/key.pem'
+
+    # Fallback to adhoc if certs don't exist (for local dev without Docker)
+    if os.path.exists(cert_file) and os.path.exists(key_file):
+        ssl_context = (cert_file, key_file)
+    else:
+        ssl_context = 'adhoc'
+
+    app.run(host='0.0.0.0', port=5002, debug=debug_mode, ssl_context=ssl_context)

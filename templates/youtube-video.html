@@ -1,43 +1,252 @@
 <!DOCTYPE html>
 <html>
+<head>
+<style>
+.video-container {
+    position: relative;
+    display: inline-block;
+    width: 640px;
+    height: 360px;
+    background: #000;
+}
+
+video {
+    width: 640px;
+    height: 360px;
+    position: relative;
+    z-index: 1;
+}
+
+#mosaicCanvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 2;
+    pointer-events: none;
+}
+
+/* Make controls always show */
+video::-webkit-media-controls {
+    z-index: 3 !important;
+    position: relative;
+}
+
+video::-webkit-media-controls-panel {
+    z-index: 3 !important;
+}
+</style>
+</head>
 <body>
 <h1>{{video.title}}</h1>
-<br>
 
 {% if videofile != None %}
 "{{ videofile }}"
 <br>
-<video width="640" height="240" controls>
-  <source src="/files/youtube/{{video.id}}/{{videofile}}">
-</video>
+<div class="video-container">
+    <canvas id="mosaicCanvas" width="640" height="320" style="position: absolute; top: 0; left: 0; display: none; pointer-events: none;"></canvas>
+    <video id="videoPlayer" width="640" height="360" controls {% if video.thumbnail %}poster="{{video.thumbnail}}"{% endif %}>
+      <source src="/files/youtube/{{video.id}}/{{videofile}}">
+    </video>
+</div>
+<br>
+<button onclick="toggleThumbnail()" style="padding: 5px 10px; margin: 5px 0;">
+    <span id="toggleText">Show Original Thumbnail</span>
+</button>
+<br><br>
+
+<script>
+var isFiltered = true;
+var video = document.getElementById('videoPlayer');
+var canvas = document.getElementById('mosaicCanvas');
+var ctx = canvas.getContext('2d');
+
+// Create mosaic effect on thumbnail
+{% if video.thumbnail %}
+var thumbnail = new Image();
+thumbnail.crossOrigin = "anonymous";
+thumbnail.src = "{{video.thumbnail}}";
+thumbnail.onload = function() {
+    applyMosaicFilter();
+};
 {% endif %}
 
+function applyMosaicFilter() {
+    var blockSize = 20; // Size of mosaic blocks
+
+    // Draw image scaled down (canvas is now 320px tall to leave room for controls)
+    var smallWidth = Math.ceil(640 / blockSize);
+    var smallHeight = Math.ceil(320 / blockSize);
+
+    // Create temporary small canvas
+    var tempCanvas = document.createElement('canvas');
+    tempCanvas.width = smallWidth;
+    tempCanvas.height = smallHeight;
+    var tempCtx = tempCanvas.getContext('2d');
+
+    // Draw thumbnail scaled down (crop to fit 640x320 from 640x360)
+    tempCtx.drawImage(thumbnail, 0, 0, smallWidth, smallHeight);
+
+    // Get pixel data and convert to grayscale
+    var imageData = tempCtx.getImageData(0, 0, smallWidth, smallHeight);
+    var pixels = imageData.data;
+
+    for (var i = 0; i < pixels.length; i += 4) {
+        var gray = pixels[i] * 0.3 + pixels[i + 1] * 0.59 + pixels[i + 2] * 0.11;
+        pixels[i] = pixels[i + 1] = pixels[i + 2] = gray;
+    }
+
+    tempCtx.putImageData(imageData, 0, 0);
+
+    // Draw scaled back up with pixelation (320px tall to show controls below)
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(tempCanvas, 0, 0, 640, 320);
+
+    // Show mosaic by default
+    canvas.style.display = 'block';
+    video.removeAttribute('poster');  // Remove poster so mosaic shows instead
+}
+
+function toggleThumbnail() {
+    var toggleText = document.getElementById('toggleText');
+
+    if (isFiltered) {
+        canvas.style.display = 'none';
+        video.setAttribute('poster', '{{video.thumbnail}}');
+        toggleText.textContent = 'Hide Original Thumbnail';
+        isFiltered = false;
+    } else {
+        canvas.style.display = 'block';
+        video.removeAttribute('poster');
+        toggleText.textContent = 'Show Original Thumbnail';
+        isFiltered = true;
+    }
+}
+
+// Don't auto-hide canvas on play - let user manually toggle
+// (For audio-only files, we want to keep showing the mosaic during playback)
+</script>
+{% endif %}
+
+<h2>Quick Actions</h2>
+<div style="margin: 20px 0;">
+    {% set best_audio = namespace(format=none, quality=0) %}
+    {% set best_video = namespace(format=none, quality=0) %}
+
+    {% for format in video.formats %}
+        {# Find best audio-only format (highest abr) #}
+        {% if format.vcodec == "none" and format.acodec != "none" and format.abr %}
+            {% if format.abr > best_audio.quality %}
+                {% set best_audio.format = format %}
+                {% set best_audio.quality = format.abr %}
+            {% endif %}
+        {% endif %}
+
+        {# Find best video format (highest height, video-only or combined) #}
+        {% if format.vcodec != "none" and format.height %}
+            {% if format.height > best_video.quality %}
+                {% set best_video.format = format %}
+                {% set best_video.quality = format.height %}
+            {% endif %}
+        {% endif %}
+    {% endfor %}
+
+    {% if best_audio.format %}
+    <a href="/youtube?video={{video.id}}&format={{best_audio.format.format_id}}" style="display: inline-block; padding: 10px 20px; background: #4CAF50; color: white; text-decoration: none; margin-right: 10px;">
+        <strong>LISTEN</strong><br>
+        <span style="font-size: 0.9em;">
+            {{ best_audio.format.format_note }} - {{ best_audio.format.ext }}
+            {% if best_audio.format.filesize %}
+                - {% if best_audio.format.filesize > 1048576 %}{{ "%.1f"|format(best_audio.format.filesize / 1048576) }} MB{% else %}{{ "%.1f"|format(best_audio.format.filesize / 1024) }} KB{% endif %}
+            {% elif best_audio.format.filesize_approx %}
+                - ~{% if best_audio.format.filesize_approx > 1048576 %}{{ "%.1f"|format(best_audio.format.filesize_approx / 1048576) }} MB{% else %}{{ "%.1f"|format(best_audio.format.filesize_approx / 1024) }} KB{% endif %}
+            {% endif %}
+        </span>
+    </a>
+    {% endif %}
+
+    {% if best_video.format %}
+    <a href="/youtube?video={{video.id}}&format={{best_video.format.format_id}}" style="display: inline-block; padding: 10px 20px; background: #2196F3; color: white; text-decoration: none;">
+        <strong>WATCH</strong><br>
+        <span style="font-size: 0.9em;">
+            {{ best_video.format.height }}p - {{ best_video.format.ext }}
+            {% if best_video.format.filesize %}
+                - {% if best_video.format.filesize > 1073741824 %}{{ "%.1f"|format(best_video.format.filesize / 1073741824) }} GB{% elif best_video.format.filesize > 1048576 %}{{ "%.1f"|format(best_video.format.filesize / 1048576) }} MB{% else %}{{ "%.1f"|format(best_video.format.filesize / 1024) }} KB{% endif %}
+            {% elif best_video.format.filesize_approx %}
+                - ~{% if best_video.format.filesize_approx > 1073741824 %}{{ "%.1f"|format(best_video.format.filesize_approx / 1073741824) }} GB{% elif best_video.format.filesize_approx > 1048576 %}{{ "%.1f"|format(best_video.format.filesize_approx / 1048576) }} MB{% else %}{{ "%.1f"|format(best_video.format.filesize_approx / 1024) }} KB{% endif %}
+            {% endif %}
+        </span>
+    </a>
+    {% endif %}
+</div>
+
+{% if video.upload_date %}
+<p style="color: #666; font-size: 0.95em; margin-top: 20px;">
+    Uploaded: {{ video.upload_date[:4] }}-{{ video.upload_date[4:6] }}-{{ video.upload_date[6:8] }}
+</p>
+{% endif %}
+
+{% if video.description %}
+<div style="background: #f5f5f5; padding: 10px; margin: 10px 0; border-left: 3px solid #ccc;">
+    <strong>Description:</strong>
+    <pre style="white-space: pre-wrap; font-family: inherit; margin: 5px 0 0 0;">{{ video.description }}</pre>
+</div>
+{% endif %}
+
+<h3>All Formats</h3>
 <table width="90%">
     <tr>
-        <th>format_id</th>
-        <th>audio_ext</th>
-        <th>video_ext</th>
-
-        <th>acodec</th>
-        <th>vcodec</th>
-
-        <th>format</th>
-        <th>watch</th>
-        <th>listen</th>
+        <th>Type</th>
+        <th>Quality</th>
+        <th>Format</th>
+        <th>Size</th>
+        <th>Action</th>
     </tr>
 {% for format in video.formats %}
     {% if format.audio_ext != "none" or format.video_ext != "none" %}
     <tr>
-        <td>{{format.format_id}}</td>
-        <td>{{format.audio_ext}}</td>
-        <td>{{format.video_ext}}</td>
-
-        <td>{{format.acodec}}</td>
-        <td>{{format.vcodec}}</td>
-
-        <td>{{format.format}}</td>
-        <td><a href="/youtube?video={{video.id}}&format={{format.format_id}}&video_only=1">watch</a></td>
-        <td><a href="/youtube?video={{video.id}}&format={{format.format_id}}&audio_only=1">listen</a></td>
+        <td>
+            {% if format.vcodec == "none" and format.acodec != "none" %}
+                Audio Only
+            {% elif format.acodec == "none" and format.vcodec != "none" %}
+                Video Only
+            {% elif format.vcodec != "none" and format.acodec != "none" %}
+                Video + Audio
+            {% else %}
+                Unknown
+            {% endif %}
+        </td>
+        <td>
+            {% if format.height %}
+                {{ format.height }}p
+            {% elif format.abr %}
+                {{ format.abr }}kbps
+            {% else %}
+                N/A
+            {% endif %}
+        </td>
+        <td>{{ format.format_note or format.format_id }} ({{ format.ext }})</td>
+        <td>
+            {% if format.filesize %}
+                {% if format.filesize > 1073741824 %}
+                    {{ "%.1f"|format(format.filesize / 1073741824) }} GB
+                {% elif format.filesize > 1048576 %}
+                    {{ "%.1f"|format(format.filesize / 1048576) }} MB
+                {% else %}
+                    {{ "%.1f"|format(format.filesize / 1024) }} KB
+                {% endif %}
+            {% elif format.filesize_approx %}
+                ~{% if format.filesize_approx > 1073741824 %}
+                    {{ "%.1f"|format(format.filesize_approx / 1073741824) }} GB
+                {% elif format.filesize_approx > 1048576 %}
+                    {{ "%.1f"|format(format.filesize_approx / 1048576) }} MB
+                {% else %}
+                    {{ "%.1f"|format(format.filesize_approx / 1024) }} KB
+                {% endif %}
+            {% else %}
+                ?
+            {% endif %}
+        </td>
+        <td><a href="/youtube?video={{video.id}}&format={{format.format_id}}">download</a></td>
     </tr>
     {% endif %}
 {% endfor %}
