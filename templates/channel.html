@@ -9,7 +9,10 @@
         <h1 style="margin-bottom: 5px;">{{ channel_name }}</h1>
         <p style="color: #666; margin: 0;">{{ video_count }} video{% if video_count != 1 %}s{% endif %} cached</p>
     </div>
-    <div>
+    <div style="display: flex; gap: 10px;">
+        <form method="POST" action="/youtube/channel/{{ channel_id }}/update" style="margin: 0;">
+            <button type="submit" style="background: #3498db; white-space: nowrap;">🔄 Update Channel</button>
+        </form>
         {% if is_favorited %}
         <form method="POST" action="/favorite/remove" style="margin: 0;">
             <input type="hidden" name="type" value="channel">
@@ -28,6 +31,24 @@
         {% endif %}
     </div>
 </div>
+
+{% if updated_count is not none %}
+<div style="padding: 10px; margin-bottom: 15px; background: #d4edda; border-left: 3px solid #28a745; color: #155724;">
+    {% if updated_count == "0" %}
+        No new videos found. Channel is up to date!
+    {% elif updated_count == "1" %}
+        Successfully added 1 new video!
+    {% else %}
+        Successfully added {{ updated_count }} new videos!
+    {% endif %}
+</div>
+{% endif %}
+
+{% if update_error %}
+<div style="padding: 10px; margin-bottom: 15px; background: #f8d7da; border-left: 3px solid #dc3545; color: #721c24;">
+    Error updating channel. Please try again later.
+</div>
+{% endif %}
 
 <h2>Videos (Newest First)</h2>
 

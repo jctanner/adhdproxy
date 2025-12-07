@@ -248,6 +248,62 @@ def clear_cache():
         return f'Error clearing cache: {str(e)}', 500
 
 
+@app.route('/youtube/channel/<channel_id>/update', methods=['POST'])
+def youtube_channel_update(channel_id):
+    """Fetch new videos from a channel"""
+    try:
+        # Fetch recent videos from the channel (up to 50)
+        channel_url = f"https://www.youtube.com/channel/{channel_id}/videos"
+        cmd = f'yt-dlp --dump-json --flat-playlist --playlist-end 50 "{channel_url}"'
+        logger.info(f'Updating channel {channel_id}: {cmd}')
+
+        pid = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        lines = pid.stdout.decode('utf-8').strip().split('\n')
+
+        new_count = 0
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                video_data = json.loads(line)
+                video_id = video_data.get('id')
+
+                if not video_id:
+                    continue
+
+                # Check if video is already cached
+                vdir = os.path.join(youtubecache, video_id)
+                dfile = os.path.join(vdir, 'data.json')
+
+                if not os.path.exists(dfile):
+                    # Fetch full metadata for this video
+                    logger.info(f'Fetching metadata for new video: {video_id}')
+                    meta_cmd = f'yt-dlp -J {video_id}'
+                    meta_pid = subprocess.run(meta_cmd, shell=True, stdout=subprocess.PIPE)
+                    meta_json = meta_pid.stdout.decode('utf-8')
+
+                    # Save metadata
+                    if not os.path.exists(vdir):
+                        os.makedirs(vdir)
+                    with open(dfile, 'w') as f:
+                        f.write(meta_json)
+
+                    new_count += 1
+
+            except Exception as e:
+                logger.exception(e)
+                continue
+
+        logger.info(f'Found {new_count} new videos for channel {channel_id}')
+
+        # Redirect back to channel page
+        return redirect(f'/youtube/channel/{channel_id}?updated={new_count}')
+
+    except Exception as e:
+        logger.exception(e)
+        return redirect(f'/youtube/channel/{channel_id}?error=update_failed')
+
+
 @app.route('/youtube/channel/<channel_id>')
 def youtube_channel(channel_id):
     """Show all cached videos from a specific channel"""
@@ -281,12 +337,18 @@ def youtube_channel(channel_id):
     favs = load_favorites()
     is_favorited = any(c['id'] == channel_id for c in favs.get('channels', []))
 
+    # Check for update notification
+    updated_count = request.args.get('updated')
+    update_error = request.args.get('error')
+
     return render_template('channel.html',
                          channel_name=channel_name,
                          channel_id=channel_id,
                          videos=channel_videos,
                          video_count=len(channel_videos),
-                         is_favorited=is_favorited)
+                         is_favorited=is_favorited,
+                         updated_count=updated_count,
+                         update_error=update_error)
 
 
 @app.route('/youtube')
