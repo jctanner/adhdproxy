@@ -4,3 +4,4 @@ flask
 logzero
 beautifulsoup4
 yt-dlp
+pyopenssl
