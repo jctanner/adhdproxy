@@ -21,7 +21,7 @@ from flask import send_file
 
 
 app = Flask(__name__)
-requests_cache.install_cache('/tmp/r.cache')
+requests_cache.install_cache('/tmp/r.cache', expire_after=86400)  # 1 day = 86400 seconds
 session = requests.Session()
 #youtubecache = '/tmp/youtubevids'
 youtubecache = 'youtube_cache'
