@@ -183,13 +183,13 @@ def youtube():
         return render_template('youtube-video.html', video=ds, videofile=videofile)
 
     videos = []
-    total_results = 0
 
     # do a search ...
     if q:
-        # Fetch results dynamically based on page - cap at 50 total
-        max_results = min(50, per_page * page + 10)  # fetch enough for current page + buffer
-        cmd = f'yt-dlp --dump-json --clean-info-json --dump-single-json "ytsearch{max_results}:{q}"'
+        # Lazy pagination: only fetch enough for current page + 1 to check if there's more
+        # For page N, we need to fetch N * per_page + 1 results
+        fetch_count = per_page * page + 1
+        cmd = f'yt-dlp --dump-json --clean-info-json --dump-single-json "ytsearch{fetch_count}:{q}"'
         logger.debug(cmd)
         pid = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE)
         lines = pid.stdout.decode('utf-8').split('\n')
@@ -212,39 +212,42 @@ def youtube():
                 logger.exception(e)
                 continue
 
-        # Pagination logic
-        total_results = len(all_videos)
+        # Pagination logic: take only the results for current page
         start_idx = (page - 1) * per_page
         end_idx = start_idx + per_page
         videos = all_videos[start_idx:end_idx]
 
-        logger.debug(f'total results: {total_results}, showing {start_idx} to {end_idx}')
+        # Check if there are more results
+        has_next = len(all_videos) > per_page * page
+        has_prev = page > 1
+
+        logger.debug(f'fetched {len(all_videos)} results, showing {len(videos)} for page {page}')
 
     else:
         # list what has already been cached
         vfiles = glob.glob(f'{youtubecache}/*/data.json')
+        all_cached = []
         for vfile in vfiles:
             logger.debug(f'read {vfile}')
             try:
                 with open(vfile, 'r') as f:
                     ds = json.loads(f.read())
-                videos.append({'id': ds['id'], 'title': ds['title']})
+                all_cached.append({'id': ds['id'], 'title': ds['title']})
             except Exception as e:
                 logger.exception(e)
-        total_results = len(videos)
 
-    # Calculate pagination info
-    total_pages = (total_results + per_page - 1) // per_page if total_results > 0 else 1
-    has_next = page < total_pages
-    has_prev = page > 1
+        # Paginate cached results
+        start_idx = (page - 1) * per_page
+        end_idx = start_idx + per_page
+        videos = all_cached[start_idx:end_idx]
+        has_next = len(all_cached) > end_idx
+        has_prev = page > 1
 
     return render_template('youtube.html',
                          videos=videos,
                          query=q,
                          page=page,
                          per_page=per_page,
-                         total_results=total_results,
-                         total_pages=total_pages,
                          has_next=has_next,
                          has_prev=has_prev)
 
