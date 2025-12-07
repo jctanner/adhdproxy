@@ -29,6 +29,11 @@
             <button type="submit" style="background: #f39c12; white-space: nowrap;">☆ Add to Favorites</button>
         </form>
         {% endif %}
+        <form method="POST" action="/delete/channel" style="margin: 0;" onsubmit="return confirm('Are you sure you want to delete ALL {{ video_count }} videos from this channel? This will remove all cached data and downloaded files.');">
+            <input type="hidden" name="id" value="{{ channel_id }}">
+            <input type="hidden" name="return_url" value="/youtube">
+            <button type="submit" style="background: #95a5a6; white-space: nowrap;">🗑 Delete Channel Cache</button>
+        </form>
     </div>
 </div>
 

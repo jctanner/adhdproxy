@@ -227,6 +227,82 @@ def remove_favorite():
     return redirect(return_url)
 
 
+@app.route('/delete/video', methods=['POST'])
+def delete_video():
+    """Delete a video from cache"""
+    import shutil
+
+    video_id = request.form.get('id')
+    return_url = request.form.get('return_url', '/youtube')
+
+    if video_id:
+        vdir = os.path.join(youtubecache, video_id)
+        if os.path.exists(vdir):
+            try:
+                shutil.rmtree(vdir)
+                logger.info(f'Deleted video cache: {video_id}')
+
+                # Also remove from favorites if present
+                favs = load_favorites()
+                if video_id in favs.get('videos', []):
+                    favs['videos'].remove(video_id)
+                    save_favorites(favs)
+
+            except Exception as e:
+                logger.exception(e)
+                return redirect(return_url + '?error=delete_failed')
+
+    return redirect(return_url)
+
+
+@app.route('/delete/channel', methods=['POST'])
+def delete_channel():
+    """Delete all videos from a channel from cache"""
+    import shutil
+
+    channel_id = request.form.get('id')
+    return_url = request.form.get('return_url', '/youtube')
+
+    if channel_id:
+        # Find all videos from this channel
+        vfiles = glob.glob(f'{youtubecache}/*/data.json')
+        deleted_count = 0
+
+        for vfile in vfiles:
+            try:
+                with open(vfile, 'r') as f:
+                    ds = json.loads(f.read())
+
+                if not ds or not isinstance(ds, dict):
+                    continue
+
+                if ds.get('channel_id') == channel_id:
+                    video_id = ds.get('id')
+                    vdir = os.path.dirname(vfile)
+                    shutil.rmtree(vdir)
+                    deleted_count += 1
+                    logger.info(f'Deleted video cache: {video_id}')
+
+                    # Also remove from favorites if present
+                    favs = load_favorites()
+                    if video_id and video_id in favs.get('videos', []):
+                        favs['videos'].remove(video_id)
+                        save_favorites(favs)
+
+            except Exception as e:
+                logger.exception(e)
+                continue
+
+        # Remove channel from favorites
+        favs = load_favorites()
+        favs['channels'] = [c for c in favs.get('channels', []) if c['id'] != channel_id]
+        save_favorites(favs)
+
+        logger.info(f'Deleted {deleted_count} videos from channel {channel_id}')
+
+    return redirect(return_url)
+
+
 @app.route('/controls')
 def controls():
     """Show admin/control page"""
