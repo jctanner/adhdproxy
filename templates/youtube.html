@@ -3,11 +3,48 @@
 <body>
 <h1>videos</h1>
 <form id="searchForm" method="GET" action="">
-    <input type="text" id="searchterm" name="q" placeholder="Enter search term"></input>
+    <input type="text" id="searchterm" name="q" placeholder="Enter search term" value="{{ query if query else '' }}"></input>
+    <select name="per_page" id="per_page">
+        <option value="10" {% if per_page == 10 %}selected{% endif %}>10 per page</option>
+        <option value="20" {% if per_page == 20 %}selected{% endif %}>20 per page</option>
+        <option value="50" {% if per_page == 50 %}selected{% endif %}>50 per page</option>
+    </select>
     <input type="submit" value="Search">
 </form>
+
+{% if query %}
+<p>Showing results {{ ((page - 1) * per_page) + 1 }} - {{ ((page - 1) * per_page) + videos|length }} of {{ total_results }}</p>
+
+<div style="margin: 10px 0;">
+    {% if has_prev %}
+    <a href="/youtube?q={{ query }}&per_page={{ per_page }}&page={{ page - 1 }}">&lt; Previous</a>
+    {% endif %}
+
+    <span style="margin: 0 10px;">Page {{ page }} of {{ total_pages }}</span>
+
+    {% if has_next %}
+    <a href="/youtube?q={{ query }}&per_page={{ per_page }}&page={{ page + 1 }}">Next &gt;</a>
+    {% endif %}
+</div>
+{% endif %}
+
 {% for video in videos %}
     <a href="/youtube?video={{ video.id }}">{{video.title}}</a><br>
 {% endfor %}
+
+{% if query and (has_prev or has_next) %}
+<div style="margin: 10px 0;">
+    {% if has_prev %}
+    <a href="/youtube?q={{ query }}&per_page={{ per_page }}&page={{ page - 1 }}">&lt; Previous</a>
+    {% endif %}
+
+    <span style="margin: 0 10px;">Page {{ page }} of {{ total_pages }}</span>
+
+    {% if has_next %}
+    <a href="/youtube?q={{ query }}&per_page={{ per_page }}&page={{ page + 1 }}">Next &gt;</a>
+    {% endif %}
+</div>
+{% endif %}
+
 </body>
 </html>

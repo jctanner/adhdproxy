@@ -136,7 +136,10 @@ def youtube():
     formatid = request.args.get('format')
     audio_only = request.args.get('audio_only')
     video_only = request.args.get('video_only')
+    per_page = int(request.args.get('per_page', 10))  # default 10 results per page
+    page = int(request.args.get('page', 1))  # default page 1
     logger.debug(f'videoid: {videoid} formatid:{formatid} audio:{audio_only} video:{video_only}')
+    logger.debug(f'per_page: {per_page} page: {page}')
     logger.debug('---------------------------')
     if videoid is not None:
 
@@ -180,17 +183,21 @@ def youtube():
         return render_template('youtube-video.html', video=ds, videofile=videofile)
 
     videos = []
+    total_results = 0
 
     # do a search ...
     if q:
-        cmd = f'yt-dlp --dump-json --clean-info-json --dump-single-json "ytsearch5:{q}"'
+        # Fetch results dynamically based on page - cap at 50 total
+        max_results = min(50, per_page * page + 10)  # fetch enough for current page + buffer
+        cmd = f'yt-dlp --dump-json --clean-info-json --dump-single-json "ytsearch{max_results}:{q}"'
         logger.debug(cmd)
         pid = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE)
         lines = pid.stdout.decode('utf-8').split('\n')
+        all_videos = []
         for line in lines:
             try:
                 ds = json.loads(line)
-                videos.append({'id': ds['id'], 'title': ds['title']})
+                all_videos.append({'id': ds['id'], 'title': ds['title']})
 
                 vid = ds['id']
                 vdir = os.path.join(youtubecache, vid)
@@ -205,7 +212,13 @@ def youtube():
                 logger.exception(e)
                 continue
 
-        logger.debug(videos)
+        # Pagination logic
+        total_results = len(all_videos)
+        start_idx = (page - 1) * per_page
+        end_idx = start_idx + per_page
+        videos = all_videos[start_idx:end_idx]
+
+        logger.debug(f'total results: {total_results}, showing {start_idx} to {end_idx}')
 
     else:
         # list what has already been cached
@@ -218,8 +231,22 @@ def youtube():
                 videos.append({'id': ds['id'], 'title': ds['title']})
             except Exception as e:
                 logger.exception(e)
+        total_results = len(videos)
 
-    return render_template('youtube.html', videos=videos)
+    # Calculate pagination info
+    total_pages = (total_results + per_page - 1) // per_page if total_results > 0 else 1
+    has_next = page < total_pages
+    has_prev = page > 1
+
+    return render_template('youtube.html',
+                         videos=videos,
+                         query=q,
+                         page=page,
+                         per_page=per_page,
+                         total_results=total_results,
+                         total_pages=total_pages,
+                         has_next=has_next,
+                         has_prev=has_prev)
 
 
 
@@ -252,4 +279,6 @@ def abstract_path(path):
 
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5002, debug=True, ssl_context='adhoc')
+    # Check if running in container (disable debug mode to prevent reload loops)
+    debug_mode = os.environ.get('FLASK_ENV') != 'production'
+    app.run(host='0.0.0.0', port=5002, debug=debug_mode, ssl_context='adhoc')

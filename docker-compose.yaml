@@ -13,3 +13,4 @@ services:
       - ".:/app:z"
     environment:
       - PYTHONUNBUFFERED=1
+      - FLASK_ENV=production
