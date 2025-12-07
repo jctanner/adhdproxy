@@ -227,6 +227,114 @@ def remove_favorite():
     return redirect(return_url)
 
 
+@app.route('/transcript/fetch', methods=['POST'])
+def fetch_transcript():
+    """Fetch transcript for a video"""
+    video_id = request.form.get('id')
+    return_url = request.form.get('return_url', '/youtube')
+
+    if video_id:
+        vdir = os.path.join(youtubecache, video_id)
+        if not os.path.exists(vdir):
+            os.makedirs(vdir)
+
+        try:
+            # Try to download auto-generated English subtitles first, then manual
+            # Download as .vtt format (easier to parse than .srt)
+            cmd = f'yt-dlp --write-auto-sub --sub-lang en --skip-download --sub-format vtt --output "{vdir}/%(id)s" {video_id}'
+            logger.info(f'Fetching transcript: {cmd}')
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+
+            # If auto-subs failed, try manual subs
+            if result.returncode != 0 or not glob.glob(f'{vdir}/*.vtt'):
+                cmd = f'yt-dlp --write-sub --sub-lang en --skip-download --sub-format vtt --output "{vdir}/%(id)s" {video_id}'
+                logger.info(f'Trying manual subtitles: {cmd}')
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+
+            # Check if we got a subtitle file
+            vtt_files = glob.glob(f'{vdir}/*.vtt')
+            if vtt_files:
+                # Convert VTT to plain text
+                vtt_file = vtt_files[0]
+                transcript_text = convert_vtt_to_text(vtt_file)
+
+                # Save as plain text
+                transcript_file = os.path.join(vdir, 'transcript.txt')
+                with open(transcript_file, 'w') as f:
+                    f.write(transcript_text)
+
+                logger.info(f'Transcript saved: {transcript_file}')
+                separator = '&' if '?' in return_url else '?'
+                return redirect(return_url + separator + 'transcript=success')
+            else:
+                logger.warning(f'No transcript available for {video_id}')
+                separator = '&' if '?' in return_url else '?'
+                return redirect(return_url + separator + 'transcript=unavailable')
+
+        except Exception as e:
+            logger.exception(e)
+            separator = '&' if '?' in return_url else '?'
+            return redirect(return_url + separator + 'transcript=error')
+
+    return redirect(return_url)
+
+
+def convert_vtt_to_text(vtt_file):
+    """Convert VTT subtitle file to plain text"""
+    import re
+
+    with open(vtt_file, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    # Remove VTT header
+    content = re.sub(r'WEBVTT\n.*?\n\n', '', content, flags=re.DOTALL)
+
+    # Remove timestamp lines (e.g., "00:00:00.000 --> 00:00:02.000")
+    content = re.sub(r'\d{2}:\d{2}:\d{2}\.\d{3} --> \d{2}:\d{2}:\d{2}\.\d{3}.*?\n', '', content)
+
+    # Remove cue identifiers (lines that are just numbers)
+    content = re.sub(r'^\d+\n', '', content, flags=re.MULTILINE)
+
+    # Remove VTT tags like <c>, <v>, etc.
+    content = re.sub(r'<[^>]+>', '', content)
+
+    # Remove alignment tags
+    content = re.sub(r'align:start position:\d+%', '', content)
+
+    # Split into lines and filter out empty ones
+    lines = [line.strip() for line in content.split('\n')]
+    lines = [line for line in lines if line]
+
+    # Join with single newlines, then add paragraph breaks where appropriate
+    # (YouTube captions often have sentences split across lines)
+    text = ' '.join(lines)
+
+    # Replace common sentence-ending patterns with newline breaks
+    text = re.sub(r'\.\s+', '.\n', text)
+    text = re.sub(r'\?\s+', '?\n', text)
+    text = re.sub(r'!\s+', '!\n', text)
+
+    # Collapse multiple blank lines into single blank line
+    text = re.sub(r'\n\n+', '\n\n', text)
+
+    return text.strip()
+
+
+@app.route('/transcript/download/<video_id>')
+def download_transcript(video_id):
+    """Download transcript as a text file"""
+    vdir = os.path.join(youtubecache, video_id)
+    transcript_file = os.path.join(vdir, 'transcript.txt')
+
+    if os.path.exists(transcript_file):
+        return send_file(transcript_file,
+                        as_attachment=True,
+                        download_name=f'{video_id}_transcript.txt',
+                        mimetype='text/plain')
+    else:
+        return "Transcript not found", 404
+
+
 @app.route('/delete/video', methods=['POST'])
 def delete_video():
     """Delete a video from cache"""
@@ -250,7 +358,8 @@ def delete_video():
 
             except Exception as e:
                 logger.exception(e)
-                return redirect(return_url + '?error=delete_failed')
+                separator = '&' if '?' in return_url else '?'
+                return redirect(return_url + separator + 'error=delete_failed')
 
     return redirect(return_url)
 
@@ -496,7 +605,25 @@ def youtube():
         #cmd = 'yt-dlp --keep-video --extract-audio {videoid}'
         favs = load_favorites()
         is_favorited = videoid in favs.get('videos', [])
-        return render_template('youtube-video.html', video=ds, videofile=videofile, is_favorited=is_favorited)
+
+        # Check for transcript
+        transcript_file = os.path.join(vdir, 'transcript.txt')
+        transcript = None
+        has_transcript = os.path.exists(transcript_file)
+        if has_transcript:
+            with open(transcript_file, 'r', encoding='utf-8') as f:
+                transcript = f.read()
+
+        # Check for transcript status messages
+        transcript_status = request.args.get('transcript')
+
+        return render_template('youtube-video.html',
+                             video=ds,
+                             videofile=videofile,
+                             is_favorited=is_favorited,
+                             has_transcript=has_transcript,
+                             transcript=transcript,
+                             transcript_status=transcript_status)
 
     videos = []
 

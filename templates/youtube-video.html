@@ -230,6 +230,40 @@ function toggleThumbnail() {
 </div>
 {% endif %}
 
+<h3>Transcript</h3>
+
+{% if transcript_status == 'success' %}
+<div style="padding: 10px; margin-bottom: 15px; background: #d4edda; border-left: 3px solid #28a745; color: #155724;">
+    Transcript downloaded successfully!
+</div>
+{% elif transcript_status == 'unavailable' %}
+<div style="padding: 10px; margin-bottom: 15px; background: #fff3cd; border-left: 3px solid #ffc107; color: #856404;">
+    No transcript available for this video.
+</div>
+{% elif transcript_status == 'error' %}
+<div style="padding: 10px; margin-bottom: 15px; background: #f8d7da; border-left: 3px solid #dc3545; color: #721c24;">
+    Error downloading transcript. Please try again.
+</div>
+{% endif %}
+
+{% if has_transcript %}
+<div style="margin-bottom: 10px;">
+    <a href="/transcript/download/{{ video.id }}" style="display: inline-block; padding: 8px 16px; background: #27ae60; color: white; text-decoration: none; border-radius: 3px;">
+        💾 Download Transcript
+    </a>
+</div>
+<div style="background: #f9f9f9; padding: 15px; margin: 10px 0; border-left: 3px solid #3498db; max-height: 400px; overflow-y: auto;">
+    <pre style="white-space: pre-wrap; font-family: inherit; margin: 0; line-height: 1.6;">{{ transcript }}</pre>
+</div>
+{% else %}
+<form method="POST" action="/transcript/fetch" style="margin: 10px 0;">
+    <input type="hidden" name="id" value="{{ video.id }}">
+    <input type="hidden" name="return_url" value="/youtube?video={{ video.id }}">
+    <button type="submit" style="background: #9b59b6; color: white;">📝 Fetch Transcript</button>
+</form>
+<p style="color: #666; font-size: 0.9em; font-style: italic;">Click the button above to download the transcript for this video.</p>
+{% endif %}
+
 <h3>All Formats</h3>
 <table width="90%">
     <tr>
