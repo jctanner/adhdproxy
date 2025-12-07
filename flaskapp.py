@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from flask import Flask
 from flask import jsonify
+from flask import redirect
 from flask import render_template
 from flask import request
 from flask import send_from_directory
@@ -27,6 +28,21 @@ session = requests.Session()
 #youtubecache = '/tmp/youtubevids'
 youtubecache = 'youtube_cache'
 youtubecache_index = '/tmp/youtubevids/index.json'
+favorites_file = 'favorites.json'
+
+
+def load_favorites():
+    """Load favorites from JSON file"""
+    if os.path.exists(favorites_file):
+        with open(favorites_file, 'r') as f:
+            return json.load(f)
+    return {'videos': [], 'channels': []}
+
+
+def save_favorites(favorites):
+    """Save favorites to JSON file"""
+    with open(favorites_file, 'w') as f:
+        json.dump(favorites, f, indent=2)
 
 
 def replace_urls(html, domain, protocol=None):
@@ -126,7 +142,92 @@ def files_youtube(path):
     return send_file(fn)
 
 
-@app.route('/clear-cache')
+@app.route('/favorites')
+def favorites():
+    """Show favorites page"""
+    favs = load_favorites()
+
+    # Load details for favorite videos
+    video_details = []
+    for video_id in favs.get('videos', []):
+        vdir = os.path.join(youtubecache, video_id)
+        df = os.path.join(vdir, 'data.json')
+        if os.path.exists(df):
+            try:
+                with open(df, 'r') as f:
+                    ds = json.loads(f.read())
+                    video_details.append({
+                        'id': ds['id'],
+                        'title': ds['title'],
+                        'uploader': ds.get('uploader'),
+                        'channel_id': ds.get('channel_id'),
+                        'upload_date': ds.get('upload_date')
+                    })
+            except Exception as e:
+                logger.exception(e)
+
+    # Load details for favorite channels
+    channel_details = []
+    for channel_info in favs.get('channels', []):
+        channel_details.append(channel_info)
+
+    return render_template('favorites.html',
+                         videos=video_details,
+                         channels=channel_details)
+
+
+@app.route('/favorite/add', methods=['POST'])
+def add_favorite():
+    """Add a video or channel to favorites"""
+    favs = load_favorites()
+
+    item_type = request.form.get('type')  # 'video' or 'channel'
+    item_id = request.form.get('id')
+
+    if item_type == 'video':
+        if item_id not in favs['videos']:
+            favs['videos'].append(item_id)
+    elif item_type == 'channel':
+        channel_name = request.form.get('name')
+        # Check if channel already exists
+        existing = [c for c in favs['channels'] if c['id'] == item_id]
+        if not existing:
+            favs['channels'].append({'id': item_id, 'name': channel_name})
+
+    save_favorites(favs)
+
+    # Redirect back to referrer or favorites page
+    return_url = request.form.get('return_url', '/favorites')
+    return redirect(return_url)
+
+
+@app.route('/favorite/remove', methods=['POST'])
+def remove_favorite():
+    """Remove a video or channel from favorites"""
+    favs = load_favorites()
+
+    item_type = request.form.get('type')  # 'video' or 'channel'
+    item_id = request.form.get('id')
+
+    if item_type == 'video' and item_id in favs['videos']:
+        favs['videos'].remove(item_id)
+    elif item_type == 'channel':
+        favs['channels'] = [c for c in favs['channels'] if c['id'] != item_id]
+
+    save_favorites(favs)
+
+    # Redirect back to referrer or favorites page
+    return_url = request.form.get('return_url', '/favorites')
+    return redirect(return_url)
+
+
+@app.route('/controls')
+def controls():
+    """Show admin/control page"""
+    return render_template('controls.html')
+
+
+@app.route('/clear-cache', methods=['POST'])
 def clear_cache():
     """Clear the web request cache but keep downloaded videos"""
     try:
@@ -145,6 +246,47 @@ def clear_cache():
     except Exception as e:
         logger.exception(e)
         return f'Error clearing cache: {str(e)}', 500
+
+
+@app.route('/youtube/channel/<channel_id>')
+def youtube_channel(channel_id):
+    """Show all cached videos from a specific channel"""
+    vfiles = glob.glob(f'{youtubecache}/*/data.json')
+    channel_videos = []
+    channel_name = "Unknown Channel"
+
+    for vfile in vfiles:
+        try:
+            with open(vfile, 'r') as f:
+                ds = json.loads(f.read())
+                if ds.get('channel_id') == channel_id:
+                    channel_videos.append({
+                        'id': ds['id'],
+                        'title': ds['title'],
+                        'upload_date': ds.get('upload_date'),
+                        'timestamp': ds.get('timestamp', 0),
+                        'duration_string': ds.get('duration_string')
+                    })
+                    # Get channel name from first video
+                    if channel_name == "Unknown Channel":
+                        channel_name = ds.get('uploader') or ds.get('channel', 'Unknown Channel')
+        except Exception as e:
+            logger.exception(e)
+            continue
+
+    # Sort by timestamp (newest first)
+    channel_videos.sort(key=lambda x: x['timestamp'], reverse=True)
+
+    # Check if channel is favorited
+    favs = load_favorites()
+    is_favorited = any(c['id'] == channel_id for c in favs.get('channels', []))
+
+    return render_template('channel.html',
+                         channel_name=channel_name,
+                         channel_id=channel_id,
+                         videos=channel_videos,
+                         video_count=len(channel_videos),
+                         is_favorited=is_favorited)
 
 
 @app.route('/youtube')
@@ -202,7 +344,9 @@ def youtube():
                 subprocess.run(cmd, cwd=vdir, shell=True)
 
         #cmd = 'yt-dlp --keep-video --extract-audio {videoid}'
-        return render_template('youtube-video.html', video=ds, videofile=videofile)
+        favs = load_favorites()
+        is_favorited = videoid in favs.get('videos', [])
+        return render_template('youtube-video.html', video=ds, videofile=videofile, is_favorited=is_favorited)
 
     videos = []
 
@@ -257,22 +401,46 @@ def youtube():
         # list what has already been cached
         vfiles = glob.glob(f'{youtubecache}/*/data.json')
         all_cached = []
+        creators = {}  # Track creators and their video counts
+
         for vfile in vfiles:
             logger.debug(f'read {vfile}')
             try:
                 with open(vfile, 'r') as f:
                     ds = json.loads(f.read())
-                all_cached.append({
+
+                video_info = {
                     'id': ds['id'],
                     'title': ds['title'],
                     'upload_date': ds.get('upload_date'),
-                    'timestamp': ds.get('timestamp', 0)
-                })
+                    'timestamp': ds.get('timestamp', 0),
+                    'uploader': ds.get('uploader'),
+                    'channel_id': ds.get('channel_id')
+                }
+                all_cached.append(video_info)
+
+                # Track creators
+                channel_id = ds.get('channel_id')
+                if channel_id:
+                    if channel_id not in creators:
+                        creators[channel_id] = {
+                            'name': ds.get('uploader', 'Unknown'),
+                            'channel_id': channel_id,
+                            'video_count': 0,
+                            'latest_timestamp': 0
+                        }
+                    creators[channel_id]['video_count'] += 1
+                    if ds.get('timestamp', 0) > creators[channel_id]['latest_timestamp']:
+                        creators[channel_id]['latest_timestamp'] = ds.get('timestamp', 0)
+
             except Exception as e:
                 logger.exception(e)
 
         # Sort cached results by timestamp (newest first)
         all_cached.sort(key=lambda x: x['timestamp'], reverse=True)
+
+        # Sort creators by video count (most videos first)
+        creators_list = sorted(creators.values(), key=lambda x: x['video_count'], reverse=True)
 
         # Paginate cached results
         start_idx = (page - 1) * per_page
@@ -287,7 +455,8 @@ def youtube():
                          page=page,
                          per_page=per_page,
                          has_next=has_next,
-                         has_prev=has_prev)
+                         has_prev=has_prev,
+                         creators=creators_list if not q else None)
 
 
 

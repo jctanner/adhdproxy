@@ -41,7 +41,33 @@ video::-webkit-media-controls-panel {
 {% endblock %}
 
 {% block content %}
-<h1>{{video.title}}</h1>
+<div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px;">
+    <div>
+        <h1 style="margin-bottom: 10px;">{{video.title}}</h1>
+        {% if video.uploader %}
+        <p style="color: #666; font-size: 0.95em; margin: 0;">
+            By <a href="/youtube/channel/{{ video.channel_id }}">{{ video.uploader }}</a>
+        </p>
+        {% endif %}
+    </div>
+    <div>
+        {% if is_favorited %}
+        <form method="POST" action="/favorite/remove" style="margin: 0;">
+            <input type="hidden" name="type" value="video">
+            <input type="hidden" name="id" value="{{ video.id }}">
+            <input type="hidden" name="return_url" value="/youtube?video={{ video.id }}">
+            <button type="submit" style="background: #e74c3c; white-space: nowrap;">★ Remove from Favorites</button>
+        </form>
+        {% else %}
+        <form method="POST" action="/favorite/add" style="margin: 0;">
+            <input type="hidden" name="type" value="video">
+            <input type="hidden" name="id" value="{{ video.id }}">
+            <input type="hidden" name="return_url" value="/youtube?video={{ video.id }}">
+            <button type="submit" style="background: #f39c12; white-space: nowrap;">☆ Add to Favorites</button>
+        </form>
+        {% endif %}
+    </div>
+</div>
 
 {% if videofile != None %}
 "{{ videofile }}"
@@ -159,6 +185,9 @@ function toggleThumbnail() {
         <strong>LISTEN</strong><br>
         <span style="font-size: 0.9em;">
             {{ best_audio.format.format_note }} - {{ best_audio.format.ext }}
+            {% if best_audio.format.abr %}
+                - {{ "%.0f"|format(best_audio.format.abr) }}kbps
+            {% endif %}
             {% if best_audio.format.filesize %}
                 - {% if best_audio.format.filesize > 1048576 %}{{ "%.1f"|format(best_audio.format.filesize / 1048576) }} MB{% else %}{{ "%.1f"|format(best_audio.format.filesize / 1024) }} KB{% endif %}
             {% elif best_audio.format.filesize_approx %}
@@ -207,7 +236,9 @@ function toggleThumbnail() {
     </tr>
 {% for format in video.formats %}
     {% if format.audio_ext != "none" or format.video_ext != "none" %}
-    <tr>
+    {% set is_best_audio = best_audio.format and format.format_id == best_audio.format.format_id %}
+    {% set is_best_video = best_video.format and format.format_id == best_video.format.format_id %}
+    <tr {% if is_best_audio %}style="background-color: #c8e6c9;"{% elif is_best_video %}style="background-color: #bbdefb;"{% endif %}>
         <td>
             {% if format.vcodec == "none" and format.acodec != "none" %}
                 Audio Only

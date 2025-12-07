@@ -13,4 +13,4 @@ services:
       - "./certs:/app/certs:z"
     environment:
       - PYTHONUNBUFFERED=1
-      - FLASK_ENV=production
+      - FLASK_ENV=development

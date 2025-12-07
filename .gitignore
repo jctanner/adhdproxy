@@ -106,3 +106,4 @@ venv.bak/
 # ADHD Proxy specific
 youtube_cache
 certs/
+favorites.json

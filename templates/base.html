@@ -29,6 +29,18 @@
             margin: 0 auto;
             display: flex;
             align-items: center;
+            justify-content: space-between;
+        }
+
+        .navbar-left {
+            display: flex;
+            align-items: center;
+        }
+
+        .navbar-right {
+            display: flex;
+            align-items: center;
+            padding-right: 20px;
         }
 
         .navbar a {
@@ -51,6 +63,26 @@
         .navbar .brand {
             font-weight: bold;
             font-size: 1.1em;
+        }
+
+        .navbar-search {
+            display: flex;
+            align-items: center;
+        }
+
+        .navbar-search input[type="text"] {
+            padding: 6px 10px;
+            border: none;
+            border-radius: 3px 0 0 3px;
+            width: 200px;
+            font-size: 13px;
+        }
+
+        .navbar-search button {
+            padding: 6px 12px;
+            border-radius: 0 3px 3px 0;
+            margin: 0;
+            font-size: 13px;
         }
 
         .container {
@@ -137,9 +169,18 @@
 <body>
     <nav class="navbar">
         <div class="navbar-content">
-            <a href="/" class="brand {% block nav_home %}{% endblock %}">ADHD Proxy</a>
-            <a href="/youtube" class="{% block nav_youtube %}{% endblock %}">YouTube</a>
-            <a href="/clear-cache" class="{% block nav_clear %}{% endblock %}">Clear Cache</a>
+            <div class="navbar-left">
+                <a href="/" class="brand {% block nav_home %}{% endblock %}">ADHD Proxy</a>
+                <a href="/youtube" class="{% block nav_youtube %}{% endblock %}">YouTube</a>
+                <a href="/favorites" class="{% block nav_favorites %}{% endblock %}">Favorites</a>
+                <a href="/controls" class="{% block nav_controls %}{% endblock %}">Controls</a>
+            </div>
+            <div class="navbar-right">
+                <form method="GET" action="/youtube" class="navbar-search">
+                    <input type="text" name="q" placeholder="Search YouTube..." />
+                    <button type="submit">Search</button>
+                </form>
+            </div>
         </div>
     </nav>
 

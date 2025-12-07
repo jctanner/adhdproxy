@@ -16,6 +16,163 @@
     <input type="submit" value="Search">
 </form>
 
+{% if creators %}
+<h2>Cached Creators ({{ creators|length }})</h2>
+
+<div style="margin-bottom: 15px; padding: 15px; background: #ecf0f1; border-radius: 3px;">
+    <input type="text" id="creatorFilter" placeholder="Filter creators..." style="width: 300px; margin-right: 10px;" onkeyup="filterCreators()">
+    <select id="creatorSort" onchange="sortCreators()" style="margin-right: 10px;">
+        <option value="count">Sort by video count</option>
+        <option value="alpha">Sort alphabetically</option>
+        <option value="recent">Sort by most recent upload</option>
+    </select>
+    <span id="creatorCount" style="color: #666; font-size: 0.9em;"></span>
+</div>
+
+<div id="creatorPagination" style="margin-bottom: 10px;">
+    <button onclick="prevCreatorPage()" id="prevCreatorBtn" style="margin-right: 10px;">← Previous</button>
+    <span id="creatorPageInfo" style="margin: 0 10px; color: #666;"></span>
+    <button onclick="nextCreatorPage()" id="nextCreatorBtn">Next →</button>
+</div>
+
+<div id="creatorGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px; margin-bottom: 30px;">
+    {% for creator in creators %}
+    <div class="creator-card"
+         data-name="{{ creator.name|lower }}"
+         data-count="{{ creator.video_count }}"
+         data-timestamp="{{ creator.latest_timestamp }}"
+         style="padding: 15px; background: #f9f9f9; border-left: 3px solid #3498db; border-radius: 3px;">
+        <a href="/youtube/channel/{{ creator.channel_id }}" style="font-weight: bold; font-size: 1.1em;">{{ creator.name }}</a>
+        <div style="color: #666; font-size: 0.9em; margin-top: 5px;">
+            {{ creator.video_count }} video{% if creator.video_count != 1 %}s{% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<script>
+var currentCreatorPage = 1;
+var creatorsPerPage = 18; // About 6 rows of 3 cards
+
+function getVisibleCards() {
+    var cards = Array.from(document.getElementsByClassName('creator-card'));
+    return cards.filter(function(card) {
+        // Check data-filtered attribute, not style.display
+        // (style.display is controlled by pagination)
+        var filtered = card.getAttribute('data-filtered');
+        return filtered === 'visible' || filtered === null;
+    });
+}
+
+function updateCreatorPagination() {
+    var visibleCards = getVisibleCards();
+    var totalPages = Math.ceil(visibleCards.length / creatorsPerPage);
+
+    // Reset to page 1 if current page is beyond total
+    if (currentCreatorPage > totalPages && totalPages > 0) {
+        currentCreatorPage = 1;
+    }
+
+    // Hide all cards first
+    visibleCards.forEach(function(card) {
+        card.style.display = 'none';
+    });
+
+    // Show only cards for current page
+    var startIdx = (currentCreatorPage - 1) * creatorsPerPage;
+    var endIdx = Math.min(startIdx + creatorsPerPage, visibleCards.length);
+
+    for (var i = startIdx; i < endIdx; i++) {
+        visibleCards[i].style.display = '';
+    }
+
+    // Update pagination controls
+    document.getElementById('creatorPageInfo').textContent =
+        'Page ' + currentCreatorPage + ' of ' + (totalPages || 1);
+    document.getElementById('prevCreatorBtn').disabled = currentCreatorPage <= 1;
+    document.getElementById('nextCreatorBtn').disabled = currentCreatorPage >= totalPages;
+
+    // Update count
+    var showingCount = Math.min(endIdx - startIdx, visibleCards.length);
+    document.getElementById('creatorCount').textContent =
+        'Showing ' + showingCount + ' of ' + visibleCards.length + ' creators';
+}
+
+function prevCreatorPage() {
+    if (currentCreatorPage > 1) {
+        currentCreatorPage--;
+        updateCreatorPagination();
+    }
+}
+
+function nextCreatorPage() {
+    var visibleCards = getVisibleCards();
+    var totalPages = Math.ceil(visibleCards.length / creatorsPerPage);
+    if (currentCreatorPage < totalPages) {
+        currentCreatorPage++;
+        updateCreatorPagination();
+    }
+}
+
+function filterCreators() {
+    var input = document.getElementById('creatorFilter');
+    var filter = input.value.toLowerCase();
+    var cards = document.getElementsByClassName('creator-card');
+
+    for (var i = 0; i < cards.length; i++) {
+        var name = cards[i].getAttribute('data-name');
+        if (name.indexOf(filter) > -1) {
+            cards[i].setAttribute('data-filtered', 'visible');
+        } else {
+            cards[i].setAttribute('data-filtered', 'hidden');
+            cards[i].style.display = 'none';
+        }
+    }
+
+    currentCreatorPage = 1;
+    updateCreatorPagination();
+}
+
+function sortCreators() {
+    var select = document.getElementById('creatorSort');
+    var sortBy = select.value;
+    var grid = document.getElementById('creatorGrid');
+    var cards = Array.from(document.getElementsByClassName('creator-card'));
+
+    cards.sort(function(a, b) {
+        if (sortBy === 'alpha') {
+            return a.getAttribute('data-name').localeCompare(b.getAttribute('data-name'));
+        } else if (sortBy === 'count') {
+            return parseInt(b.getAttribute('data-count')) - parseInt(a.getAttribute('data-count'));
+        } else if (sortBy === 'recent') {
+            return parseInt(b.getAttribute('data-timestamp')) - parseInt(a.getAttribute('data-timestamp'));
+        }
+    });
+
+    cards.forEach(function(card) {
+        grid.appendChild(card);
+    });
+
+    updateCreatorPagination();
+}
+
+// Initialize on load
+document.addEventListener('DOMContentLoaded', function() {
+    var cards = document.getElementsByClassName('creator-card');
+    for (var i = 0; i < cards.length; i++) {
+        cards[i].setAttribute('data-filtered', 'visible');
+    }
+    updateCreatorPagination();
+});
+</script>
+{% endif %}
+
+{% if query %}
+<h2>Search Results</h2>
+{% else %}
+<h2>Recently Cached Videos</h2>
+{% endif %}
+
 {% if query and (has_prev or has_next) %}
 <div style="margin: 10px 0;">
     {% if has_prev %}
@@ -31,6 +188,11 @@
 {% for video in videos %}
     <div style="margin: 8px 0;">
         <a href="/youtube?video={{ video.id }}">{{video.title}}</a>
+        {% if video.uploader and video.channel_id %}
+            <span style="color: #666; font-size: 0.9em; margin-left: 10px;">
+                by <a href="/youtube/channel/{{ video.channel_id }}">{{ video.uploader }}</a>
+            </span>
+        {% endif %}
         {% if video.upload_date %}
             <span style="color: #666; font-size: 0.9em; margin-left: 10px;">
                 ({{ video.upload_date[:4] }}-{{ video.upload_date[4:6] }}-{{ video.upload_date[6:8] }})

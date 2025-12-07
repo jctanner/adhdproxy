@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Controls - ADHD Proxy{% endblock %}
+{% block nav_controls %}active{% endblock %}
+
+{% block content %}
+<h1>Controls</h1>
+
+<div style="margin: 20px 0;">
+    <h2>Cache Management</h2>
+    <div style="background: #f9f9f9; padding: 15px; border-left: 3px solid #3498db; margin: 10px 0;">
+        <h3 style="margin-top: 0;">Clear Request Cache</h3>
+        <p style="color: #666; margin: 10px 0;">
+            This will clear the web request cache to force fresh data fetches.
+            Downloaded videos will be preserved.
+        </p>
+        <form method="POST" action="/clear-cache">
+            <button type="submit" style="background: #e74c3c;">Clear Cache</button>
+        </form>
+    </div>
+</div>
+
+<div style="margin: 20px 0;">
+    <h2>Future Controls</h2>
+    <p style="color: #999; font-style: italic;">Additional admin functions will be added here...</p>
+</div>
+
+{% endblock %}

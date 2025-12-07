@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}{{ channel_name }} - ADHD Proxy{% endblock %}
+{% block nav_youtube %}active{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px;">
+    <div>
+        <h1 style="margin-bottom: 5px;">{{ channel_name }}</h1>
+        <p style="color: #666; margin: 0;">{{ video_count }} video{% if video_count != 1 %}s{% endif %} cached</p>
+    </div>
+    <div>
+        {% if is_favorited %}
+        <form method="POST" action="/favorite/remove" style="margin: 0;">
+            <input type="hidden" name="type" value="channel">
+            <input type="hidden" name="id" value="{{ channel_id }}">
+            <input type="hidden" name="return_url" value="/youtube/channel/{{ channel_id }}">
+            <button type="submit" style="background: #e74c3c; white-space: nowrap;">★ Remove from Favorites</button>
+        </form>
+        {% else %}
+        <form method="POST" action="/favorite/add" style="margin: 0;">
+            <input type="hidden" name="type" value="channel">
+            <input type="hidden" name="id" value="{{ channel_id }}">
+            <input type="hidden" name="name" value="{{ channel_name }}">
+            <input type="hidden" name="return_url" value="/youtube/channel/{{ channel_id }}">
+            <button type="submit" style="background: #f39c12; white-space: nowrap;">☆ Add to Favorites</button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+
+<h2>Videos (Newest First)</h2>
+
+{% if videos %}
+    {% for video in videos %}
+    <div style="margin: 15px 0; padding: 10px; border-left: 3px solid #3498db; background: #f9f9f9;">
+        <a href="/youtube?video={{ video.id }}" style="font-size: 1.1em; font-weight: bold;">{{video.title}}</a>
+        <div style="color: #666; font-size: 0.9em; margin-top: 5px;">
+            {% if video.duration_string %}
+                <span style="margin-right: 15px;">⏱ {{ video.duration_string }}</span>
+            {% endif %}
+            {% if video.upload_date %}
+                <span>📅 {{ video.upload_date[:4] }}-{{ video.upload_date[4:6] }}-{{ video.upload_date[6:8] }}</span>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+{% else %}
+    <p>No videos found for this channel.</p>
+{% endif %}
+
+<p style="margin-top: 20px;">
+    <a href="/youtube">← Back to YouTube</a>
+</p>
+{% endblock %}

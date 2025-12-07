@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block title %}Favorites - ADHD Proxy{% endblock %}
+{% block nav_favorites %}active{% endblock %}
+
+{% block content %}
+<h1>Favorites</h1>
+
+{% if channels %}
+<h2>Favorite Channels</h2>
+<div style="margin: 20px 0;">
+    {% for channel in channels %}
+    <div style="margin: 10px 0; padding: 15px; background: #f9f9f9; border-left: 3px solid #3498db; display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <a href="/youtube/channel/{{ channel.id }}" style="font-size: 1.1em; font-weight: bold;">{{ channel.name }}</a>
+        </div>
+        <form method="POST" action="/favorite/remove" style="margin: 0;">
+            <input type="hidden" name="type" value="channel">
+            <input type="hidden" name="id" value="{{ channel.id }}">
+            <input type="hidden" name="return_url" value="/favorites">
+            <button type="submit" style="background: #e74c3c; padding: 5px 10px; font-size: 0.9em;">Remove</button>
+        </form>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if videos %}
+<h2>Favorite Videos</h2>
+<div style="margin: 20px 0;">
+    {% for video in videos %}
+    <div style="margin: 10px 0; padding: 15px; background: #f9f9f9; border-left: 3px solid #2ecc71; display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <a href="/youtube?video={{ video.id }}" style="font-size: 1.1em; font-weight: bold;">{{ video.title }}</a>
+            {% if video.uploader and video.channel_id %}
+                <div style="color: #666; font-size: 0.9em; margin-top: 5px;">
+                    by <a href="/youtube/channel/{{ video.channel_id }}">{{ video.uploader }}</a>
+                </div>
+            {% endif %}
+            {% if video.upload_date %}
+                <div style="color: #666; font-size: 0.9em; margin-top: 5px;">
+                    {{ video.upload_date[:4] }}-{{ video.upload_date[4:6] }}-{{ video.upload_date[6:8] }}
+                </div>
+            {% endif %}
+        </div>
+        <form method="POST" action="/favorite/remove" style="margin: 0;">
+            <input type="hidden" name="type" value="video">
+            <input type="hidden" name="id" value="{{ video.id }}">
+            <input type="hidden" name="return_url" value="/favorites">
+            <button type="submit" style="background: #e74c3c; padding: 5px 10px; font-size: 0.9em;">Remove</button>
+        </form>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if not channels and not videos %}
+<p style="color: #999; font-style: italic; margin: 20px 0;">
+    No favorites yet. Visit a video or channel page and click "Add to Favorites" to start building your collection!
+</p>
+{% endif %}
+
+{% endblock %}
