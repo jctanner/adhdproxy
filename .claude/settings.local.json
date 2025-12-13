@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs jq:*)",
+      "Bash(xargs:*)",
+      "Bash(chmod:*)",
+      "Bash(ls:*)",
+      "Bash(jq:*)",
+      "Bash(podman logs:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

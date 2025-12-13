@@ -34,6 +34,9 @@
             <input type="hidden" name="return_url" value="/youtube">
             <button type="submit" style="background: #95a5a6; white-space: nowrap;">🗑 Delete Channel Cache</button>
         </form>
+        <form method="POST" action="/youtube/channel/{{ channel_id }}/refresh-all" style="margin: 0;">
+            <button type="submit" style="background: #2ecc71; white-space: nowrap;">⟳ Deep Refresh</button>
+        </form>
     </div>
 </div>
 

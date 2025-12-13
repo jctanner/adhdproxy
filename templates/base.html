@@ -172,11 +172,12 @@
             <div class="navbar-left">
                 <a href="/" class="brand {% block nav_home %}{% endblock %}">ADHD Proxy</a>
                 <a href="/youtube" class="{% block nav_youtube %}{% endblock %}">YouTube</a>
+                <a href="/creators" class="{% block nav_creators %}{% endblock %}">Creators</a>
                 <a href="/favorites" class="{% block nav_favorites %}{% endblock %}">Favorites</a>
                 <a href="/controls" class="{% block nav_controls %}{% endblock %}">Controls</a>
             </div>
             <div class="navbar-right">
-                <form method="GET" action="/youtube" class="navbar-search">
+                <form method="GET" action="/youtube/search" class="navbar-search">
                     <input type="text" name="q" placeholder="Search YouTube..." />
                     <button type="submit">Search</button>
                 </form>
