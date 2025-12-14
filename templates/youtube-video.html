@@ -8,15 +8,16 @@
 .video-container {
     position: relative;
     display: inline-block;
-    width: 640px;
-    height: 360px;
+    width: 100%;
+    max-width: 960px;
     background: #000;
 }
 
 video {
-    width: 640px;
-    height: 360px;
+    width: 100%;
+    height: auto;
     position: relative;
+    display: block;
     z-index: 1;
 }
 
@@ -26,6 +27,7 @@ video {
     left: 0;
     z-index: 2;
     pointer-events: none;
+    width: 100%;
 }
 
 /* Make controls always show */
@@ -94,6 +96,18 @@ var isFiltered = true;
 var video = document.getElementById('videoPlayer');
 var canvas = document.getElementById('mosaicCanvas');
 var ctx = canvas.getContext('2d');
+var mosaicMargin = 40; // leave room for controls
+
+function syncCanvasSize() {
+    var displayWidth = video.clientWidth || video.videoWidth || 640;
+    var displayHeight = video.clientHeight || video.videoHeight || 360;
+    var mosaicHeight = Math.max(displayHeight - mosaicMargin, Math.floor(displayHeight * 0.85));
+
+    canvas.width = displayWidth;
+    canvas.height = mosaicHeight;
+    canvas.style.width = displayWidth + 'px';
+    canvas.style.height = mosaicHeight + 'px';
+}
 
 // Create mosaic effect on thumbnail
 {% if video.thumbnail %}
@@ -106,11 +120,14 @@ thumbnail.onload = function() {
 {% endif %}
 
 function applyMosaicFilter() {
+    syncCanvasSize();
     var blockSize = 20; // Size of mosaic blocks
+    var mosaicWidth = canvas.width;
+    var mosaicHeight = canvas.height;
 
-    // Draw image scaled down (canvas is now 320px tall to leave room for controls)
-    var smallWidth = Math.ceil(640 / blockSize);
-    var smallHeight = Math.ceil(320 / blockSize);
+    // Draw image scaled down to leave room for controls
+    var smallWidth = Math.max(1, Math.ceil(mosaicWidth / blockSize));
+    var smallHeight = Math.max(1, Math.ceil(mosaicHeight / blockSize));
 
     // Create temporary small canvas
     var tempCanvas = document.createElement('canvas');
@@ -118,7 +135,7 @@ function applyMosaicFilter() {
     tempCanvas.height = smallHeight;
     var tempCtx = tempCanvas.getContext('2d');
 
-    // Draw thumbnail scaled down (crop to fit 640x320 from 640x360)
+    // Draw thumbnail scaled down to mosaic dimensions
     tempCtx.drawImage(thumbnail, 0, 0, smallWidth, smallHeight);
 
     // Get pixel data and convert to grayscale
@@ -132,9 +149,9 @@ function applyMosaicFilter() {
 
     tempCtx.putImageData(imageData, 0, 0);
 
-    // Draw scaled back up with pixelation (320px tall to show controls below)
+    // Draw scaled back up with pixelation while keeping controls visible
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(tempCanvas, 0, 0, 640, 320);
+    ctx.drawImage(tempCanvas, 0, 0, mosaicWidth, mosaicHeight);
 
     // Show mosaic by default
     canvas.style.display = 'block';
@@ -159,6 +176,16 @@ function toggleThumbnail() {
 
 // Don't auto-hide canvas on play - let user manually toggle
 // (For audio-only files, we want to keep showing the mosaic during playback)
+window.addEventListener('resize', function() {
+    if (canvas.style.display !== 'none') {
+        applyMosaicFilter();
+    } else {
+        syncCanvasSize();
+    }
+});
+
+// Ensure sizing is correct on initial load
+document.addEventListener('DOMContentLoaded', syncCanvasSize);
 </script>
 {% endif %}
 

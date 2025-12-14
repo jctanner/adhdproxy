@@ -8,7 +8,7 @@ import subprocess
 import requests
 import requests_cache
 from logzero import logger
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote_plus
 
 from bs4 import BeautifulSoup
 from flask import Flask
@@ -439,57 +439,109 @@ def clear_cache():
         return f'Error clearing cache: {str(e)}', 500
 
 
-@app.route('/youtube/channel/<channel_id>/update', methods=['POST'])
-def youtube_channel_update(channel_id):
-    """Fetch new videos from a channel"""
-    try:
-        # Fetch recent videos from the channel (up to 50)
-        channel_url = f"https://www.youtube.com/channel/{channel_id}/videos"
-        cmd = f'yt-dlp --dump-json --flat-playlist --playlist-end 50 "{channel_url}"'
-        logger.info(f'Updating channel {channel_id}: {cmd}')
+def fetch_channel_updates(channel_id, playlist_end=50, batch_size=20):
+    """Fetch new videos for a channel without removing existing cache.
 
-        pid = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        lines = pid.stdout.decode('utf-8').strip().split('\n')
+    Uses batched yt-dlp metadata fetches to cut down on per-video calls.
+    """
+    channel_url = f"https://www.youtube.com/channel/{channel_id}/videos"
+    cmd = f'yt-dlp --dump-json --flat-playlist --playlist-end {playlist_end} "{channel_url}"'
+    logger.info(f'Updating channel {channel_id}: {cmd}')
 
-        new_count = 0
-        for line in lines:
-            if not line.strip():
+    pid = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    lines = pid.stdout.decode('utf-8').strip().split('\n')
+
+    new_count = 0
+    missing_ids = []
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            video_data = json.loads(line)
+            video_id = video_data.get('id')
+
+            if not video_id:
+                continue
+
+            # Check if video is already cached with valid JSON
+            vdir = os.path.join(youtubecache, video_id)
+            dfile = os.path.join(vdir, 'data.json')
+
+            needs_refresh = False
+            if os.path.exists(dfile):
+                try:
+                    with open(dfile) as df:
+                        cached = json.load(df)
+                    if not isinstance(cached, dict) or cached.get('id') != video_id:
+                        needs_refresh = True
+                except Exception:
+                    # Corrupt or empty file; refresh it
+                    needs_refresh = True
+                    try:
+                        os.remove(dfile)
+                    except OSError:
+                        pass
+            else:
+                needs_refresh = True
+
+            if needs_refresh:
+                missing_ids.append(video_id)
+
+        except Exception as e:
+            logger.exception(e)
+            continue
+
+    # Fetch metadata in batches to reduce per-video process overhead
+    for i in range(0, len(missing_ids), batch_size):
+        batch = missing_ids[i:i + batch_size]
+        meta_cmd = ['yt-dlp', '-J'] + batch
+        logger.info(f'Fetching metadata for batch ({len(batch)})')
+        meta_pid = subprocess.run(meta_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        meta_output = meta_pid.stdout.decode('utf-8').strip().split('\n')
+
+        for meta_line in meta_output:
+            if not meta_line.strip():
                 continue
             try:
-                video_data = json.loads(line)
-                video_id = video_data.get('id')
-
+                meta = json.loads(meta_line)
+                if not isinstance(meta, dict):
+                    continue
+                video_id = meta.get('id')
                 if not video_id:
                     continue
 
-                # Check if video is already cached
                 vdir = os.path.join(youtubecache, video_id)
                 dfile = os.path.join(vdir, 'data.json')
-
-                if not os.path.exists(dfile):
-                    # Fetch full metadata for this video
-                    logger.info(f'Fetching metadata for new video: {video_id}')
-                    meta_cmd = f'yt-dlp -J {video_id}'
-                    meta_pid = subprocess.run(meta_cmd, shell=True, stdout=subprocess.PIPE)
-                    meta_json = meta_pid.stdout.decode('utf-8')
-
-                    # Save metadata
-                    if not os.path.exists(vdir):
-                        os.makedirs(vdir)
-                    with open(dfile, 'w') as f:
-                        f.write(meta_json)
-
-                    new_count += 1
-
+                if not os.path.exists(vdir):
+                    os.makedirs(vdir)
+                with open(dfile, 'w') as f:
+                    f.write(json.dumps(meta, indent=2))
+                new_count += 1
             except Exception as e:
                 logger.exception(e)
-                continue
 
-        logger.info(f'Found {new_count} new videos for channel {channel_id}')
+    logger.info(f'Found {new_count} new videos for channel {channel_id}')
+    return new_count
 
-        # Redirect back to channel page
+
+@app.route('/youtube/channel/<channel_id>/update', methods=['POST'])
+def youtube_channel_update(channel_id):
+    """Fetch the latest (up to 50) videos for a channel."""
+    try:
+        new_count = fetch_channel_updates(channel_id, playlist_end=50)
         return redirect(f'/youtube/channel/{channel_id}?updated={new_count}')
+    except Exception as e:
+        logger.exception(e)
+        return redirect(f'/youtube/channel/{channel_id}?error=update_failed')
 
+
+@app.route('/youtube/channel/<channel_id>/refresh-all', methods=['POST'])
+def youtube_channel_refresh_all(channel_id):
+    """Fetch a deeper slice of the channel playlist while keeping existing cache."""
+    try:
+        # Grab more entries to catch up on older uploads without deleting downloads
+        new_count = fetch_channel_updates(channel_id, playlist_end=200)
+        return redirect(f'/youtube/channel/{channel_id}?updated={new_count}')
     except Exception as e:
         logger.exception(e)
         return redirect(f'/youtube/channel/{channel_id}?error=update_failed')
@@ -503,6 +555,10 @@ def youtube_channel(channel_id):
     channel_name = "Unknown Channel"
 
     for vfile in vfiles:
+        # Skip obviously bad paths (e.g., artifacts with query params)
+        if '?' in vfile:
+            logger.warning(f'Skipping malformed path: {vfile}')
+            continue
         try:
             with open(vfile, 'r') as f:
                 ds = json.loads(f.read())
@@ -524,7 +580,7 @@ def youtube_channel(channel_id):
                     if channel_name == "Unknown Channel":
                         channel_name = ds.get('uploader') or ds.get('channel', 'Unknown Channel')
         except Exception as e:
-            logger.exception(e)
+            logger.warning(f'Skipping unreadable data file {vfile}: {e}')
             continue
 
     # Sort by timestamp (newest first)
@@ -564,6 +620,11 @@ def youtube():
     logger.debug(f'videoid: {videoid} formatid:{formatid} audio:{audio_only} video:{video_only}')
     logger.debug(f'per_page: {per_page} page: {page}')
     logger.debug('---------------------------')
+
+    # Redirect searches to dedicated search view
+    if q:
+        return redirect(f'/youtube/search?q={quote_plus(q)}&per_page={per_page}&page={page}')
+
     if videoid is not None:
 
         vdir = os.path.join(youtubecache, videoid)
@@ -627,119 +688,195 @@ def youtube():
 
     videos = []
 
-    # do a search ...
-    if q:
-        # Lazy pagination: only fetch enough for current page + 1 to check if there's more
-        # For page N, we need to fetch N * per_page + 1 results
-        fetch_count = per_page * page + 1
-        cmd = f'yt-dlp --dump-json --clean-info-json --dump-single-json "ytsearch{fetch_count}:{q}"'
-        logger.debug(cmd)
-        pid = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE)
-        lines = pid.stdout.decode('utf-8').split('\n')
-        all_videos = []
-        for line in lines:
-            try:
-                ds = json.loads(line)
-                all_videos.append({
-                    'id': ds['id'],
-                    'title': ds['title'],
-                    'upload_date': ds.get('upload_date'),
-                    'timestamp': ds.get('timestamp', 0)
-                })
+    # list what has already been cached
+    vfiles = glob.glob(f'{youtubecache}/*/data.json')
+    all_cached = []
+    all_tags = set()
+    all_categories = set()
 
-                vid = ds['id']
-                vdir = os.path.join(youtubecache, vid)
-                if not os.path.exists(vdir):
-                    os.makedirs(vdir)
-                dfile = os.path.join(vdir, 'data.json')
-                if not os.path.exists(dfile):
-                    with open(dfile, 'w') as f:
-                        f.write(json.dumps(ds, indent=2))
+    for vfile in vfiles:
+        logger.debug(f'read {vfile}')
+        try:
+            with open(vfile, 'r') as f:
+                ds = json.loads(f.read())
 
-            except Exception as e:
-                logger.exception(e)
+            # Skip if data is invalid
+            if not ds or not isinstance(ds, dict) or 'id' not in ds:
+                logger.warning(f'Skipping invalid data file: {vfile}')
                 continue
 
-        # Sort by timestamp (newest first)
-        all_videos.sort(key=lambda x: x['timestamp'], reverse=True)
+            video_info = {
+                'id': ds['id'],
+                'title': ds['title'],
+                'upload_date': ds.get('upload_date'),
+                'timestamp': ds.get('timestamp', 0),
+                'uploader': ds.get('uploader'),
+                'channel_id': ds.get('channel_id'),
+                'tags': ds.get('tags') or [],
+                'categories': ds.get('categories') or []
+            }
+            all_cached.append(video_info)
 
-        # Pagination logic: take only the results for current page
-        start_idx = (page - 1) * per_page
-        end_idx = start_idx + per_page
-        videos = all_videos[start_idx:end_idx]
+            for t in video_info['tags']:
+                if isinstance(t, str):
+                    all_tags.add(t)
+            for c in video_info['categories']:
+                if isinstance(c, str):
+                    all_categories.add(c)
 
-        # Check if there are more results
-        has_next = len(all_videos) > per_page * page
-        has_prev = page > 1
+        except Exception as e:
+            logger.exception(e)
 
-        logger.debug(f'fetched {len(all_videos)} results, showing {len(videos)} for page {page}')
+    # Filters
+    filter_tag = request.args.get('tag')
+    filter_category = request.args.get('category')
+    filter_text = request.args.get('s')
 
-    else:
-        # list what has already been cached
-        vfiles = glob.glob(f'{youtubecache}/*/data.json')
-        all_cached = []
-        creators = {}  # Track creators and their video counts
+    if filter_tag:
+        all_cached = [v for v in all_cached if filter_tag in v.get('tags', [])]
+    if filter_category:
+        all_cached = [v for v in all_cached if filter_category in v.get('categories', [])]
+    if filter_text:
+        needle = filter_text.lower()
+        filtered = []
+        for v in all_cached:
+            # Build a flattened string of all values in the metadata dict
+            haystack = []
+            for val in v.values():
+                if isinstance(val, str):
+                    haystack.append(val)
+                elif isinstance(val, (list, tuple)):
+                    haystack.extend([str(x) for x in val])
+                elif val is not None:
+                    haystack.append(str(val))
+            joined = ' '.join(haystack).lower()
+            if needle in joined:
+                filtered.append(v)
+        all_cached = filtered
 
-        for vfile in vfiles:
-            logger.debug(f'read {vfile}')
-            try:
-                with open(vfile, 'r') as f:
-                    ds = json.loads(f.read())
+    # Sort cached results by timestamp (newest first)
+    all_cached.sort(key=lambda x: x['timestamp'], reverse=True)
 
-                # Skip if data is invalid
-                if not ds or not isinstance(ds, dict) or 'id' not in ds:
-                    logger.warning(f'Skipping invalid data file: {vfile}')
-                    continue
-
-                video_info = {
-                    'id': ds['id'],
-                    'title': ds['title'],
-                    'upload_date': ds.get('upload_date'),
-                    'timestamp': ds.get('timestamp', 0),
-                    'uploader': ds.get('uploader'),
-                    'channel_id': ds.get('channel_id')
-                }
-                all_cached.append(video_info)
-
-                # Track creators
-                channel_id = ds.get('channel_id')
-                if channel_id:
-                    if channel_id not in creators:
-                        creators[channel_id] = {
-                            'name': ds.get('uploader', 'Unknown'),
-                            'channel_id': channel_id,
-                            'video_count': 0,
-                            'latest_timestamp': 0
-                        }
-                    creators[channel_id]['video_count'] += 1
-                    if ds.get('timestamp', 0) > creators[channel_id]['latest_timestamp']:
-                        creators[channel_id]['latest_timestamp'] = ds.get('timestamp', 0)
-
-            except Exception as e:
-                logger.exception(e)
-
-        # Sort cached results by timestamp (newest first)
-        all_cached.sort(key=lambda x: x['timestamp'], reverse=True)
-
-        # Sort creators by video count (most videos first)
-        creators_list = sorted(creators.values(), key=lambda x: x['video_count'], reverse=True)
-
-        # Paginate cached results
-        start_idx = (page - 1) * per_page
-        end_idx = start_idx + per_page
-        videos = all_cached[start_idx:end_idx]
-        has_next = len(all_cached) > end_idx
-        has_prev = page > 1
+    # No pagination on main list; show all cached
+    videos = all_cached
+    has_next = False
+    has_prev = False
 
     return render_template('youtube.html',
                          videos=videos,
-                         query=q,
-                         page=page,
-                         per_page=per_page,
+                         query=None,
+                         page=1,
+                         per_page=len(videos),
                          has_next=has_next,
                          has_prev=has_prev,
-                         creators=creators_list if not q else None)
+                         filter_tag=filter_tag,
+                         filter_category=filter_category,
+                         filter_text=filter_text,
+                         tags=sorted(all_tags),
+                         categories=sorted(all_categories))
 
+
+
+@app.route('/youtube/search')
+def youtube_search():
+    """Dedicated search view for YouTube queries."""
+    q = request.args.get('q')
+    per_page = int(request.args.get('per_page', 10))
+    page = int(request.args.get('page', 1))
+
+    if not q:
+        return redirect('/youtube')
+
+    fetch_count = per_page * page + 1
+    cmd = f'yt-dlp --dump-json --clean-info-json --dump-single-json "ytsearch{fetch_count}:{q}"'
+    logger.debug(cmd)
+    pid = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE)
+    lines = pid.stdout.decode('utf-8').split('\n')
+    all_videos = []
+    for line in lines:
+        try:
+            ds = json.loads(line)
+            all_videos.append({
+                'id': ds['id'],
+                'title': ds['title'],
+                'upload_date': ds.get('upload_date'),
+                'timestamp': ds.get('timestamp', 0)
+            })
+
+            vid = ds['id']
+            vdir = os.path.join(youtubecache, vid)
+            if not os.path.exists(vdir):
+                os.makedirs(vdir)
+            dfile = os.path.join(vdir, 'data.json')
+            if not os.path.exists(dfile):
+                with open(dfile, 'w') as f:
+                    f.write(json.dumps(ds, indent=2))
+
+        except Exception as e:
+            logger.exception(e)
+            continue
+
+    # Sort by timestamp (newest first)
+    all_videos.sort(key=lambda x: x['timestamp'], reverse=True)
+
+    # Pagination logic: take only the results for current page
+    start_idx = (page - 1) * per_page
+    end_idx = start_idx + per_page
+    videos = all_videos[start_idx:end_idx]
+
+    # Check if there are more results
+    has_next = len(all_videos) > per_page * page
+    has_prev = page > 1
+
+    logger.debug(f'fetched {len(all_videos)} results, showing {len(videos)} for page {page}')
+
+    return render_template('youtube_search.html',
+                           videos=videos,
+                           query=q,
+                           page=page,
+                           per_page=per_page,
+                           has_next=has_next,
+                           has_prev=has_prev)
+
+
+@app.route('/creators')
+def creators():
+    """List cached creators."""
+    vfiles = glob.glob(f'{youtubecache}/*/data.json')
+    creators = {}
+
+    for vfile in vfiles:
+        # skip malformed path names
+        if '?' in vfile:
+            continue
+        try:
+            with open(vfile, 'r') as f:
+                ds = json.loads(f.read())
+
+            if not ds or not isinstance(ds, dict) or 'id' not in ds:
+                continue
+
+            channel_id = ds.get('channel_id')
+            if not channel_id:
+                continue
+
+            if channel_id not in creators:
+                creators[channel_id] = {
+                    'name': ds.get('uploader', 'Unknown'),
+                    'channel_id': channel_id,
+                    'video_count': 0,
+                    'latest_timestamp': 0
+                }
+            creators[channel_id]['video_count'] += 1
+            if ds.get('timestamp', 0) > creators[channel_id]['latest_timestamp']:
+                creators[channel_id]['latest_timestamp'] = ds.get('timestamp', 0)
+
+        except Exception as e:
+            logger.exception(e)
+
+    creators_list = sorted(creators.values(), key=lambda x: x['video_count'], reverse=True)
+
+    return render_template('creators.html', creators=creators_list)
 
 
 @app.route('/', defaults={'path': ''})
